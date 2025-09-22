@@ -2,6 +2,7 @@ import { CELL } from './constants.js';
 import { idx } from './utils.js';
 import { setCell, getCell } from './grid.js';
 import { stepSources } from './sources.js';
+import { initAgents, stepAgents } from './agents.js';
 
 export function initSpawnMask(state){
   state.spawnMask = new Float32Array(state.W);
@@ -51,4 +52,6 @@ export function step(state){
   // источники и «ластик»
   stepSources(state);
   if (state.eraseHeld) state.applyBrush();
+  
+  stepAgents(state);
 }

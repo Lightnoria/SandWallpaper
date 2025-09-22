@@ -1,4 +1,4 @@
-export const CELL = { EMPTY:0, SAND:1, ROCK:2, CRYSTAL:3 };
+export const CELL = { EMPTY:0, SAND:1, ROCK:2, CRYSTAL:3, BOT:4 };
 
 export const SOURCE_TYPES = [
   { t:'spiral',          w:1 },

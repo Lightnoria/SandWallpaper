@@ -1,5 +1,6 @@
 import { spawnSourceType } from './sources.js';
 import { CELL } from './constants.js';
+import { spawnAgent } from './agents.js'; // ← добавить
 
 function clearAll(state){
   state.grid.fill(CELL.EMPTY);
@@ -57,6 +58,7 @@ export function attachDebugPanel(state){
     btn('Амёба',            ()=>{ const [x,y]=center(); spawnSourceType(state,'volcano_amoeba',x,y); }),
     btn('Ветки',            ()=>{ const [x,y]=center(); spawnSourceType(state,'branches',x,y); }),
     btn('Лабиринт',         ()=>{ const [x,y]=center(); spawnSourceType(state,'maze',x,y); }),
+    btn('БОТ',            ()=>{ const [x,y]=center(); spawnAgent(state,x,y); }),
     btn('Очистить экран',   ()=>{ clearAll(state); })
   );
 
