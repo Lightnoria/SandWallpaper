@@ -1,0 +1,35 @@
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Сборка (electron-builder, webpack, etc.) ---
+dist/
+build/
+out/
+release/
+
+# --- Временные файлы ---
+*.log
+*.tmp
+*.temp
+*.bak
+
+# --- Кэш ---
+.cache/
+.temp/
+*.swp
+
+# --- IDE/редакторы ---
+.vscode/
+.idea/
+*.iml
+
+# --- ОС ---
+.DS_Store
+Thumbs.db
+
+# --- Тесты ---
+coverage/

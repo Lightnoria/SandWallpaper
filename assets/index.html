@@ -1,0 +1,228 @@
+<!-- SW_VERSION: v22-nohud -->
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Живые обои: песок без интерфейса</title>
+  <style>
+    html, body { margin:0; height:100%; overflow:hidden; background:#1b130f; }
+    canvas { width:100vw; height:100vh; image-rendering:pixelated; background:#201711; display:block; }
+  </style>
+</head>
+<body>
+  <canvas id="view" width="512" height="288"></canvas>
+
+<script>
+// ===== Типы клеток =====
+const EMPTY=0, SAND=1, ROCK=2, CRYSTAL=3;
+
+// ===== Канвас и буферы =====
+const canvas=document.getElementById('view');
+const ctx=canvas.getContext('2d',{alpha:false});
+const W=canvas.width, H=canvas.height;
+let grid=new Uint8Array(W*H), next=new Uint8Array(W*H);
+let r=new Uint8ClampedArray(W*H), g=new Uint8ClampedArray(W*H), b=new Uint8ClampedArray(W*H);
+
+// ===== Палитры =====
+const sandPalette=[[220,185,70],[210,175,65],[200,168,60],[190,160,55]];
+const rockPalette=[[165,145,105],[158,138,100],[172,152,112]];
+const crystalPalette=[[140,220,255],[120,205,245],[160,235,255]];
+function jitter(c,a){return [clamp8(c[0]+((Math.random()*2-1)*a)|0),clamp8(c[1]+((Math.random()*2-1)*a)|0),clamp8(c[2]+((Math.random()*2-1)*a)|0)];}
+function clamp8(v){return v<0?0:v>255?255:v;}
+function pickSand(){return jitter(sandPalette[(Math.random()*sandPalette.length)|0],6);} 
+function pickRock(){return jitter(rockPalette[(Math.random()*rockPalette.length)|0],5);} 
+function pickCrystal(){return jitter(crystalPalette[(Math.random()*crystalPalette.length)|0],4);} 
+
+function idx(x,y){return y*W+x}
+function setCell(x,y,t){ if(x<0||x>=W||y<0||y>=H) return; const i=idx(x,y); grid[i]=t;
+  if(t===EMPTY){ r[i]=g[i]=b[i]=0; }
+  else if(t===SAND){ [r[i],g[i],b[i]]=pickSand(); }
+  else if(t===ROCK){ [r[i],g[i],b[i]]=pickRock(); }
+  else if(t===CRYSTAL){ [r[i],g[i],b[i]]=pickCrystal(); }
+}
+function getCell(x,y){ if(x<0||x>=W||y<0||y>=H) return ROCK; return grid[idx(x,y)]; }
+
+// ===== Фон и кадр =====
+let frame=ctx.createImageData(W,H);
+const bg=ctx.createImageData(W,H);
+for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+  const p=(idx(x,y)<<2), v=25+(y/H)*32+((Math.random()*8)|0);
+  bg.data[p]=30+v; bg.data[p+1]=22+v*0.8; bg.data[p+2]=15+v*0.5; bg.data[p+3]=255;
+}
+
+// ===== Ввод =====
+const mouse={x:W>>1,y:H>>1,down:false};
+let brush=10;
+
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+function eventToCell(e){ const rect=canvas.getBoundingClientRect(); const sx=(e.clientX-rect.left)/rect.width, sy=(e.clientY-rect.top)/rect.height; mouse.x=(sx*W)|0; mouse.y=(sy*H)|0; }
+addEventListener('mousemove', e=>eventToCell(e));
+addEventListener('mousedown', e=>{ mouse.down=(e.button===0); eventToCell(e); });
+addEventListener('mouseup', ()=>{ mouse.down=false; });
+function applyBrush(){ const r2=brush*brush; for(let dy=-brush; dy<=brush; dy++) for(let dx=-brush; dx<=brush; dx++) if(dx*dx+dy*dy<=r2) setCell(mouse.x+dx, mouse.y+dy, EMPTY); }
+
+// ===== Шум спавна сверху =====
+const spawnMask=new Float32Array(W);
+for(let x=0;x<W;x++){
+  let v = 0.6*Math.sin(x*0.09) + 0.3*Math.sin(x*0.031+1.3) + 0.1*Math.sin(x*0.013-0.7);
+  v = 0.15 + 0.85*(0.5+0.5*v);
+  spawnMask[x] = Math.max(0, Math.min(1, v)) * (0.9 + Math.random()*0.1);
+}
+
+// ===== Источники =====
+const sources=[]; let noSourceFrames=0;
+const WEIGHTS=[{t:'spiral',w:1},{t:'branches',w:2},{t:'maze',w:4},{t:'diamond',w:1}];
+function pickWeighted(){ let total=0; for(const x of WEIGHTS) total+=x.w; let rr=Math.random()*total; for(const x of WEIGHTS){ if((rr-=x.w)<=0) return x.t; } return 'maze'; }
+
+const SPAWN_PROB=0.0001; const WATCHDOG_FRAMES=800;
+const ROCK_DRAWS_BUDGET = 1500; let rockBudget = ROCK_DRAWS_BUDGET;
+
+function drawRockPix(x,y,ch=0.04){
+  if(rockBudget<=0) return false;
+  if(x<0||x>=W||y<0||y>=H) return false;
+  if(Math.random()<ch) setCell(x,y,CRYSTAL); else setCell(x,y,ROCK);
+  rockBudget--; return true;
+}
+
+function spawnSourceType(type,cx=W>>1,cy=H>>1){ sources.push({type,cx,cy,t:0,ttl:420}); }
+
+function stepSources(){
+  if(sources.length===0){ noSourceFrames++; if(noSourceFrames>WATCHDOG_FRAMES){ spawnSourceType(pickWeighted(), (Math.random()*W)|0, (Math.random()*H*0.6)|0); noSourceFrames=0; } }
+  if(Math.random()<SPAWN_PROB){ spawnSourceType(pickWeighted(), (Math.random()*W)|0, (Math.random()*H*0.6)|0); }
+  for(let s=sources.length-1;s>=0;s--){
+    const S=sources[s]; S.t++;
+    if(S.type==='spiral'){
+      const steps=8;
+      for(let k=0;k<steps;k++){
+        const th=(S.t*0.06 + k*0.25);
+        const rad=1.2 + S.t*0.22 + k*0.25;
+        for(let w=-1; w<=1; w++){
+          drawRockPix((S.cx+rad*Math.cos(th)+w)|0, (S.cy+rad*Math.sin(th))|0, 0.02);
+          drawRockPix((S.cx+rad*Math.cos(th))|0, (S.cy+rad*Math.sin(th)+w)|0, 0.02);
+        }
+      }
+    }
+    else if(S.type==='branches'){
+      if(!S.br) S.br=[{x:S.cx,y:S.cy,ang:Math.random()*Math.PI*2,life:100}];
+      const MAX_TWIGS=20, BR_PROB=0.04;
+      for(const br of S.br){
+        if(!drawRockPix(br.x|0, br.y|0, 0.01)) continue;
+        br.ang += (Math.random()*2-1)*0.15; br.x += Math.cos(br.ang); br.y += Math.sin(br.ang);
+        if(Math.random()<BR_PROB && S.br.length<MAX_TWIGS) S.br.push({x:br.x,y:br.y,ang:br.ang+(Math.random()<0.5?1:-1)*0.5,life:70});
+        br.life--; 
+      }
+      S.br = S.br.filter(b=>b.life>0);
+    }
+    else if(S.type==='maze'){
+      if(!S.grid){
+        const L = Math.round(180 * 1.3);
+        S.grid=[
+          {x:S.cx,y:S.cy,dir:(Math.random()*4)|0,len:L,branched:false},
+          {x:S.cx,y:S.cy,dir:(Math.random()*4)|0,len:L,branched:false}
+        ];
+      }
+      const wormsMax=14;
+      for(let i=0;i<S.grid.length;i++){
+        const cell=S.grid[i]; if(cell.len<=0) continue;
+        drawRockPix(cell.x|0,cell.y|0, 0.01);
+        if(Math.random()<0.18) cell.dir=(cell.dir + (Math.random()<0.5?1:-1) + 4) & 3;
+        if(cell.dir===0) cell.x++; else if(cell.dir===1) cell.y++; else if(cell.dir===2) cell.x--; else cell.y--;
+        cell.len--;
+        if(!cell.branched && S.grid.length<=wormsMax){
+          cell.branched=true;
+          const d1=(cell.dir+1)&3, d2=(cell.dir+3)&3;
+          S.grid.push({x:cell.x, y:cell.y, dir:d1, len:Math.round(180*1.3), branched:true});
+          if(S.grid.length<wormsMax) S.grid.push({x:cell.x, y:cell.y, dir:d2, len:Math.round(180*1.3), branched:true});
+        }
+      }
+      S.grid=S.grid.filter(c=>c.len>0);
+    }
+    else if(S.type==='diamond'){
+      if(!S.fault){ S.fault={r:5, rmax:Math.min(80, Math.max(20, Math.min(W,H)/2 | 0))}; S.ds=[]; }
+      const MIN_DIST=20;
+      const prevR=S.fault.r|0; S.fault.r += 1; const curR=S.fault.r|0;
+      if(curR>prevR && curR<=S.fault.rmax){
+        const n = 3 + ((Math.random()*13)|0);
+        for(let k=0;k<n;k++){
+          const a = Math.random()*Math.PI*2;
+          const jitter = (Math.random()*4-2);
+          const cx = Math.round(S.cx + (curR+jitter)*Math.cos(a));
+          const cy = Math.round(S.cy + (curR+jitter)*Math.sin(a));
+          let ok=true; for(const d of S.ds){ if(Math.hypot(d.cx-cx, d.cy-cy) < MIN_DIST){ ok=false; break; } }
+          if(!ok) continue;
+          const rmax = 3 + ((Math.random()*4)|0);
+          S.ds.push({cx,cy,r:0,rmax,drawn:0});
+        }
+      }
+      let allDone = (curR> S.fault.rmax) && S.ds.length>0;
+      for(const d of S.ds){
+        if(d.drawn < d.rmax){
+          if((S.t & 1)===0) d.r = Math.min(d.rmax, d.r+1);
+          if(d.drawn < d.r){
+            const size = d.drawn+1;
+            for(let dx=-size; dx<=size; dx++){
+              const dy = size - Math.abs(dx);
+              if(Math.random()<0.08) continue;
+              drawRockPix(d.cx+dx, d.cy+dy, 0.03);
+              drawRockPix(d.cx+dx, d.cy-dy, 0.03);
+            }
+            d.drawn = size;
+          }
+        }
+        if(d.drawn < d.rmax) allDone = false;
+      }
+      if(allDone){ S.ttl = 0; }
+    }
+    if(--S.ttl<=0) sources.splice(s,1);
+    if(rockBudget<=0) break;
+  }
+}
+
+// ===== Симуляция песка =====
+function move(i,x0,y0,x1,y1){ const j=idx(x1,y1); next[i]=EMPTY; next[j]=SAND; r[j]=r[i]; g[j]=g[i]; b[j]=b[i]; r[i]=g[i]=b[i]=0; }
+function step(){
+  next.set(grid);
+  for(let x=0;x<W;x++){
+    if(grid[x]===EMPTY){ const chance=(0.06)*spawnMask[x]; if(Math.random()<chance) setCell(x,0,SAND); }
+  }
+  for(let y=H-2;y>=0;y--){
+    for(let x=0;x<W;x++){
+      const i=idx(x,y);
+      if(grid[i]!==SAND) continue;
+      if(getCell(x,y+1)===EMPTY){ move(i,x,y,x,y+1); continue; }
+      const dir=Math.random()<0.5?-1:1;
+      if(getCell(x+dir,y+1)===EMPTY && getCell(x+dir,y)===EMPTY){ move(i,x,y,x+dir,y+1); continue; }
+      if(getCell(x-dir,y+1)===EMPTY && getCell(x-dir,y)===EMPTY){ move(i,x,y,x-dir,y+1); continue; }
+    }
+  }
+  const tmp=grid; grid=next; next=tmp;
+  rockBudget = ROCK_DRAWS_BUDGET;
+  stepSources();
+  if(mouse.down) applyBrush();
+}
+
+// ===== Рендер =====
+function render(){
+  frame.data.set(bg.data);
+  const t=performance.now();
+  for(let i=0;i<grid.length;i++){
+    if(grid[i]!==EMPTY){
+      const p=i<<2; let R=r[i],G=g[i],B=b[i];
+      if(grid[i]===CRYSTAL){
+        const k=0.8 + 0.45*Math.sin(t/140 + i*0.37);
+        R = Math.max(0, Math.min(255, (R*k)|0));
+        G = Math.max(0, Math.min(255, (G*k)|0));
+        B = Math.max(0, Math.min(255, (B*k)|0));
+      }
+      frame.data[p]=R; frame.data[p+1]=G; frame.data[p+2]=B; frame.data[p+3]=255;
+    }
+  }
+  ctx.putImageData(frame,0,0);
+}
+
+for(let x=0;x<W;x++) for(let y=0;y<((Math.random()*10)|0); y++) setCell(x,y,SAND);
+function loop(){ step(); render(); requestAnimationFrame(loop);} loop();
+</script>
+</body>
+</html>
