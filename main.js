@@ -1,40 +1,32 @@
-// main.js
+// main.js (Electron MAIN)
 const { app, BrowserWindow, globalShortcut, dialog } = require('electron');
 const { spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const APP_DIR   = path.join(app.getPath('appData'), 'SandWallpaper');
-const USER_HTML = path.join(APP_DIR, 'index.html');
-const ASSET_HTML = path.join(__dirname, 'assets', 'index.html');
-
 let win;
 let isWallpaperMode = false;
 
-function ensureUserHtml() {
-  if (!fs.existsSync(ASSET_HTML)) throw new Error(`Нет шаблона ${ASSET_HTML}`);
-  if (!fs.existsSync(APP_DIR)) fs.mkdirSync(APP_DIR, { recursive: true });
+/** РАЗРЕШЕНИЕ ПУТИ К index.html
+ *  - В dev: берём <repo_root>/index.html
+ *  - В prod (упаковано): кладём index.html рядом с main.js в asar (или в resources) и берём из process.resourcesPath
+ */
+function resolveIndexHtml() {
+  // Dev-путь (запуск `electron .` из корня)
+  const devHtml = path.join(process.cwd(), 'index.html');
+  if (fs.existsSync(devHtml)) return devHtml;
 
-  const asset = fs.readFileSync(ASSET_HTML, 'utf8');
-  const m = asset.match(/SW_VERSION:\s*([^\s>]+)/);
-  const assetVer = m ? m[1] : 'unknown';
+  // Prod-путь (упаковано)
+  const prodHtml1 = path.join(__dirname, 'index.html');                 // если упакован рядом с main.js
+  const prodHtml2 = path.join(process.resourcesPath, 'index.html');     // если вынесен в resources
+  if (fs.existsSync(prodHtml1)) return prodHtml1;
+  if (fs.existsSync(prodHtml2)) return prodHtml2;
 
-  let needCopy = false;
-  if (!fs.existsSync(USER_HTML)) {
-    needCopy = true;
-  } else {
-    const user = fs.readFileSync(USER_HTML, 'utf8');
-    const mu = user.match(/SW_VERSION:\s*([^\s>]+)/);
-    const userVer = mu ? mu[1] : 'none';
-    if (userVer !== assetVer) needCopy = true; // версия изменилась → обновляем
-  }
-  if (needCopy) fs.writeFileSync(USER_HTML, asset);
+  throw new Error('index.html не найден. Убедись, что он включён в сборку.');
 }
 
-
+/** Конвертирует HWND (Buffer) в 64-битное число для PowerShell */
 function hwndToNumber(buf) {
-  // Electron даёт HWND как Buffer (8 байт на x64)
-  // Преобразуем в строку для PowerShell (unsigned long long)
   if (buf.length >= 8) {
     const lo = buf.readUInt32LE(0);
     const hi = buf.readUInt32LE(4);
@@ -44,10 +36,7 @@ function hwndToNumber(buf) {
   }
 }
 
-// PowerShell-скрипт, который:
-// 1) просит Progman создать WorkerW (SendMessageTimeout 0x052C)
-// 2) находит WorkerW (через поиск SHELLDLL_DefView)
-// 3) SetParent(hwnd, workerw)
+/** PowerShell: прикрепить окно к WorkerW (живые обои) */
 const PS_ATTACH = `
 Add-Type -Namespace P -Name Win -MemberDefinition @"
 using System;
@@ -108,16 +97,20 @@ function runPS(script, arg) {
 
 function tryAttachToWallpaper(win) {
   if (process.platform !== 'win32') return false;
-  const hwndNum = hwndToNumber(win.getNativeWindowHandle());
-  const r = runPS(PS_ATTACH, hwndNum);
-  if (r.status === 0) return true;
-  // Если не вышло — можно посмотреть r.stderr для отладки
-  return false;
+  try {
+    const hwndNum = hwndToNumber(win.getNativeWindowHandle());
+    const r = runPS(PS_ATTACH, hwndNum);
+    return r.status === 0;
+  } catch {
+    return false;
+  }
 }
 function detachFromWallpaper(win) {
   if (process.platform !== 'win32') return;
-  const hwndNum = hwndToNumber(win.getNativeWindowHandle());
-  runPS(PS_DETACH, hwndNum);
+  try {
+    const hwndNum = hwndToNumber(win.getNativeWindowHandle());
+    runPS(PS_DETACH, hwndNum);
+  } catch {}
 }
 
 function createWindow() {
@@ -127,26 +120,30 @@ function createWindow() {
     fullscreen: true,
     resizable: false,
     backgroundColor: '#201711',
-    webPreferences: { contextIsolation: true, sandbox: true }
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+    }
   });
 
-  win.loadFile(USER_HTML);
+  const htmlPath = resolveIndexHtml();
+  win.loadFile(htmlPath);
+
   win.once('ready-to-show', () => {
     if (tryAttachToWallpaper(win)) {
       isWallpaperMode = true;
-      win.showInactive();
+      win.showInactive(); // не красть фокус у рабочего стола
     } else {
       isWallpaperMode = false;
-      win.show(); // fallback как обычное окно
+      win.show(); // как обычное окно
     }
   });
 
   app.whenReady().then(() => {
-    globalShortcut.register('Ctrl+R', () => win.webContents.reload());
-    globalShortcut.register('Ctrl+Shift+R', () => {
-      try { fs.copyFileSync(ASSET_HTML, USER_HTML); win.loadFile(USER_HTML); }
-      catch (e) { dialog.showErrorBox('Ошибка восстановления', String(e)); }
-    });
+    // перезагрузка содержимого
+    globalShortcut.register('Ctrl+R', () => { try { win.webContents.reload(); } catch {} });
+
+    // переключение Wallpaper/Window
     globalShortcut.register('Ctrl+Alt+W', () => {
       try {
         if (isWallpaperMode) {
@@ -167,7 +164,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  try { ensureUserHtml(); createWindow(); }
+  try { createWindow(); }
   catch (e) { dialog.showErrorBox('Инициализация не удалась', String(e)); app.quit(); }
 });
+
 app.on('window-all-closed', () => app.quit());

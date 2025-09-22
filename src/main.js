@@ -4,7 +4,7 @@ import { initSources } from './sources.js';
 import { initSpawnMask, step } from './sim.js';
 import { initBackground, render } from './render.js';
 import { CELL, PERFORMANCE_PROFILES, ROCK_DRAWS_BUDGET, SPAWN_PROB_BASE } from './constants.js';
-import { attachDebugPanel } from './debug.js';
+// import { attachDebugPanel } from './debug.js';
 import { initAgents, spawnAgent } from './agents.js';
 
 const canvas = document.getElementById('view');
@@ -27,9 +27,9 @@ initInput(state);
 initSources(state);
 initSpawnMask(state);
 initBackground(state);
-attachDebugPanel(state);
+//attachDebugPanel(state);
 initAgents(state);
-spawnAgent(state, (W>>1)-2, (H>>1)-2); // первый бот (центр), координаты как левый верх 4×4
+//spawnAgent(state, (W>>1)-2, (H>>1)-2); // первый бот (центр), координаты как левый верх 4×4
 
 // стартовый слой песка
 for (let x=0; x<W; x++)

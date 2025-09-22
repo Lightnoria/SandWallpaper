@@ -1,6 +1,6 @@
 import { spawnSourceType } from './sources.js';
 import { CELL } from './constants.js';
-import { spawnAgent } from './agents.js'; // ← добавить
+import { spawnAgent } from './agents.js'; 
 
 function clearAll(state){
   state.grid.fill(CELL.EMPTY);
