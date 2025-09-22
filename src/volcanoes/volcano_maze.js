@@ -145,8 +145,8 @@ function drawSegmentThin(state, seg){
 export function spawnMazeVolcano(state, cx, cy){
   // твои настройки (тончайшая сетка):
  const cell = 2; 
- const gw = Math.max(120, Math.min(((state.W-40)/cell)|0, 46)); 
- const gh = Math.max(90, Math.min(((state.H-40)/cell)|0, 34));
+ const gw = Math.max(120, Math.min(((state.W-40)/cell)|0)); 
+ const gh = Math.max(90, Math.min(((state.H-40)/cell)|0));
 
   const widthPx  = gw*cell;
   const heightPx = gh*cell;
