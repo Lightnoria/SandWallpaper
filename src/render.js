@@ -1,4 +1,5 @@
 import { CELL, CRYSTAL_PULSE } from './constants.js';
+import { renderAgentsOverlay } from './agents.js';
 
 export function initBackground(state){
   const { ctx, W, H } = state;
@@ -40,6 +41,8 @@ export function render(state){
     }
     state.frame.data[p]=R; state.frame.data[p+1]=G; state.frame.data[p+2]=B; state.frame.data[p+3]=255;
   }
+  
+  renderAgentsOverlay(state);
   ctx.putImageData(state.frame,0,0);
 }
     

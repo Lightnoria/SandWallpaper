@@ -29,7 +29,7 @@ initSpawnMask(state);
 initBackground(state);
 attachDebugPanel(state);
 initAgents(state);
-spawnAgent(state, W>>1, H>>1);
+spawnAgent(state, (W>>1)-2, (H>>1)-2); // первый бот (центр), координаты как левый верх 4×4
 
 // стартовый слой песка
 for (let x=0; x<W; x++)
